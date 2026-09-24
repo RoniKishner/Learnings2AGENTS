@@ -1,0 +1,6 @@
+# Runtime dependency: only used when a Gemini API key is supplied (LLM mode).
+# The tool works fully without it (heuristic mode).
+google-genai>=1.0.0
+
+# Test dependency
+pytest>=7.0

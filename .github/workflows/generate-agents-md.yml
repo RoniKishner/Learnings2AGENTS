@@ -1,0 +1,77 @@
+name: Generate AGENTS.md from CodeRabbit Learnings
+
+# Manual-only trigger: this is a template/starting point, not something that
+# should run automatically. Customize the inputs/steps below for your setup
+# (e.g. how the CSV export gets into the workflow, and what should happen to
+# the generated AGENTS.md files — this example just uploads them as an
+# artifact for review; wire up a commit/PR step if you want it fully
+# automated).
+on:
+  workflow_dispatch:
+    inputs:
+      target_repo:
+        description: "owner/repo checkout that AGENTS.md files should be written into"
+        required: true
+      target_ref:
+        description: "Branch/tag/SHA to check out in target_repo (default branch if empty)"
+        required: false
+        default: ""
+      csv_path:
+        description: "Path to the CodeRabbit Learnings CSV, relative to this repo's checkout"
+        required: false
+        default: "learnings.csv"
+      repository_filter:
+        description: "Value for --repository, only needed if the CSV covers multiple repos"
+        required: false
+        default: ""
+      gh_environment:
+        description: "GitHub Environment that holds the GEMINI_API_KEY secret"
+        required: false
+        default: "production"
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    # Running the job against a GitHub Environment is what makes
+    # `secrets.GEMINI_API_KEY` resolve to that Environment's secret (Settings
+    # > Environments in this repo), rather than a repository/organization
+    # secret. Configure the GEMINI_API_KEY secret on that Environment.
+    environment: ${{ inputs.gh_environment }}
+    steps:
+      - name: Check out this tool
+        uses: actions/checkout@v4
+
+      - name: Check out target repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.target_repo }}
+          ref: ${{ inputs.target_ref || '' }}
+          path: target-repo
+          # Only needed if target_repo is private and different from this repo;
+          # the default GITHUB_TOKEN only has access to the current repository.
+          # token: ${{ secrets.TARGET_REPO_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Generate AGENTS.md files
+        env:
+          # Sourced from the GitHub Environment selected above
+          # (inputs.gh_environment) — never printed, and never passed as a
+          # CLI argument (see Makefile: recipes are silenced and read the
+          # key purely from this inherited environment variable).
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          make run \
+            CSV="${{ inputs.csv_path }}" \
+            TARGET="target-repo" \
+            REPOSITORY="${{ inputs.repository_filter }}"
+
+      - name: Upload generated AGENTS.md files for review
+        uses: actions/upload-artifact@v4
+        with:
+          name: agents-md-${{ github.run_id }}
+          path: target-repo/**/AGENTS.md
+          if-no-files-found: warn

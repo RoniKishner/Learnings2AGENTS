@@ -151,6 +151,7 @@ activemq-data/
 .env
 .envrc
 .venv
+.learnings2agents_cache/
 env/
 venv/
 ENV/
@@ -186,7 +187,7 @@ cython_debug/
 #   be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
 #   and can be added to the global gitignore or merged into this file.  For a more nuclear
 #   option (not recommended) you can uncomment the following to ignore the entire idea folder.
-# .idea/
+.idea/
 
 # Abstra
 #   Abstra is an AI-powered process automation framework.
@@ -199,7 +200,7 @@ cython_debug/
 #   that can be found at https://github.com/github/gitignore/blob/main/Global/VisualStudioCode.gitignore
 #   and can be added to the global gitignore or merged into this file. However, if you prefer, 
 #   you could uncomment the following to ignore the entire vscode folder
-# .vscode/
+.vscode/
 # Temporary file for partial code execution
 tempCodeRunnerFile.py
 
@@ -216,3 +217,38 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# --- Machine/editor-local files (specific to an individual laptop/setup) ---
+# These are never meaningful to commit since they reflect one person's OS,
+# editor, or filesystem quirks rather than the project itself.
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux desktop environments
+.directory
+.Trash-*
+.fuse_hidden*
+.nfs*
+
+# Editor swap/backup files
+*~
+*.swp
+*.swo
+*.orig
+
+# Local, machine-specific override files a developer might create
+.env.local
+.env.*.local
+*.local

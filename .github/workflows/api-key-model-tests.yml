@@ -1,0 +1,32 @@
+name: api-key-model-tests
+# Tests LLM mode with an explicitly pinned model (no chain probe needed).
+# Both GEMINI_API_KEY and GEMINI_MODEL are set.
+#
+# Required repository secret:  secrets.GEMINI_API_KEY
+# Required repository variable: vars.GEMINI_MODEL (falls back to gemini-3.6-flash)
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  api-key-model-tests:
+    name: api-key-model-tests
+    runs-on: ubuntu-latest
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GEMINI_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-3.6-flash' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: make install
+
+      - name: Run tests
+        run: make test
