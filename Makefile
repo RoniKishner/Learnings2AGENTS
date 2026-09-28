@@ -7,6 +7,10 @@ PIP := $(VENV)/bin/pip
 # Usage:
 #   make run CSV=/path/to/learnings.csv TARGET=/path/to/checked-out/repo
 #   make run CSV=... TARGET=... REPOSITORY=my-repo MODEL=gemini-2.5-flash
+#   make run CSV=... TARGET=... SHOW_LIB_LOGS=1   # also show INFO logs from
+#                                                  # third-party libs (httpx,
+#                                                  # google-genai) — off by
+#                                                  # default to reduce noise
 #   make dry-run CSV=... TARGET=...
 #
 # GEMINI_API_KEY (optional): never pass it as a plain CLI argument. Export it
@@ -34,6 +38,7 @@ run: install
 		--target "$(TARGET)" \
 		$(if $(REPOSITORY),--repository "$(REPOSITORY)",) \
 		$(if $(MODEL),--model "$(MODEL)",) \
+		$(if $(SHOW_LIB_LOGS),--show-lib-logs,) \
 		$(EXTRA_ARGS)
 
 dry-run: install
@@ -42,6 +47,7 @@ dry-run: install
 		--target "$(TARGET)" \
 		$(if $(REPOSITORY),--repository "$(REPOSITORY)",) \
 		$(if $(MODEL),--model "$(MODEL)",) \
+		$(if $(SHOW_LIB_LOGS),--show-lib-logs,) \
 		--dry-run -v
 
 test: install

@@ -101,6 +101,17 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "-v", "--verbose", action="store_true", help="Enable debug logging."
     )
+    parser.add_argument(
+        "--show-lib-logs",
+        action="store_true",
+        help=(
+            "Also show INFO-level logs from third-party libraries (httpx, "
+            "google-genai, etc.), e.g. the Gemini HTTP request/response lines. "
+            "These are suppressed by default (kept at WARNING+) to reduce "
+            "noise; this tool's own INFO/DEBUG logs are unaffected by this "
+            "flag."
+        ),
+    )
     return parser
 
 
@@ -108,10 +119,19 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_arg_parser()
     args = parser.parse_args(argv)
 
+    # Root logger level controls third-party library loggers (httpx,
+    # google_genai, etc.), which are noisy at INFO by default (HTTP request
+    # lines, "AFC is enabled" chatter, ...). Keep them at WARNING+ unless
+    # explicitly requested, but always let this tool's own logger through at
+    # INFO (or DEBUG with -v) regardless of that root level.
+    root_level = logging.DEBUG if args.verbose else (
+        logging.INFO if args.show_lib_logs else logging.WARNING
+    )
     logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
+        level=root_level,
         format="%(levelname)s %(name)s: %(message)s",
     )
+    logger.setLevel(logging.DEBUG if args.verbose else logging.INFO)
 
     csv_path = Path(args.csv)
     target_path = Path(args.target)

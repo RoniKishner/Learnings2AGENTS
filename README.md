@@ -29,7 +29,11 @@ Optional extras:
 ```bash
 make run CSV=learnings.csv TARGET=/path/to/repo \
   REPOSITORY=my-org/my-repo \  # only needed if the CSV has multiple repos
-  MODEL=gemini-2.5-flash       # optional: override the Gemini model (default: gemini-2.5-flash)
+  MODEL=gemini-2.5-flash \     # optional: override the Gemini model (default: gemini-2.5-flash)
+  SHOW_LIB_LOGS=1              # optional: also show INFO logs from third-party
+                                # libs (httpx, google-genai), e.g. the Gemini
+                                # HTTP request lines. Off by default to reduce
+                                # noise; equivalent to `--show-lib-logs`.
 ```
 
 To enable LLM-mode synthesis, **export** `GEMINI_API_KEY` rather than passing
