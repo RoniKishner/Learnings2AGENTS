@@ -124,8 +124,10 @@ def main(argv: list[str] | None = None) -> int:
     # lines, "AFC is enabled" chatter, ...). Keep them at WARNING+ unless
     # explicitly requested, but always let this tool's own logger through at
     # INFO (or DEBUG with -v) regardless of that root level.
-    root_level = logging.DEBUG if args.verbose else (
-        logging.INFO if args.show_lib_logs else logging.WARNING
+    root_level = (
+        logging.DEBUG
+        if args.verbose
+        else (logging.INFO if args.show_lib_logs else logging.WARNING)
     )
     logging.basicConfig(
         level=root_level,

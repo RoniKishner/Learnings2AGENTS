@@ -78,7 +78,10 @@ python -m learnings2agents.cli --help
    heuristic (near-duplicate text clustering via `difflib`).
 5. Writes/merges an `AGENTS.md` per directory, wrapping generated content in
    `<!-- BEGIN/END CODERABBIT LEARNINGS -->` markers so any hand-written
-   content in an existing `AGENTS.md` is preserved across re-runs.
+   content in an existing `AGENTS.md` is preserved across re-runs. If a
+   Gemini key is given **and** that directory's `AGENTS.md` already exists,
+   step 4 is skipped in favor of a patch-based merge into the existing file
+   — see [`## What does a Gemini API key add?`](#what-does-a-gemini-api-key-add).
 
 Results are cached (`<target>/.learnings2agents_cache/` by default, disable
 with `--no-cache`) so re-running against an unchanged CSV/target skips
@@ -101,6 +104,20 @@ synthesis step:
   a folder (e.g. several "import X as a whole module" learnings for
   different modules become one general bullet).
 - **Noise filtering** of very narrow, one-off learnings.
+- **Patch-based merging into an already-existing `AGENTS.md`** — if a
+  directory's `AGENTS.md` already exists (e.g. from a previous run, or
+  hand-written), Gemini is shown the *entire* file as context, but only
+  returns a small patch: exact-text edits for existing rules — anywhere in
+  the file, hand-written or previously generated — that a new learning
+  restates or specializes, plus brand-new bullets (added inside the
+  `<!-- BEGIN/END CODERABBIT LEARNINGS -->` block) for learnings that match
+  nothing existing. This keeps token cost/latency proportional to what
+  actually changed rather than the size of the whole file, and an edit that
+  can't be matched exactly in the file is safely skipped (logged as a
+  warning) rather than corrupting it. If the merge-planning call itself
+  fails (network/parsing error), that directory automatically falls back to
+  the regular marker-section-only synthesis below instead of aborting the
+  run.
 
 None of this is required to use the tool; it only affects how polished the
 generated bullets are. The model used defaults to `gemini-2.5-flash`
@@ -144,6 +161,47 @@ for scripting, but prefer the environment variable). Concretely:
 - `tests/test_security.py` regression-tests that the key never shows up in
   logs, stdout/stderr, `--help` output, or the `Makefile` text itself.
 
+### Running the API-key/model test workflows on pull requests from forks
+
+`.github/workflows/{api-key-model,api-key-only,model-only}-tests.yml` need
+`GEMINI_API_KEY`/`GEMINI_MODEL` to run, but GitHub never passes repository
+secrets or variables to a `pull_request`-triggered run whose head branch is
+a fork — regardless of any repo setting. Each of these workflows therefore
+has two jobs:
+
+- The original job (unchanged) runs on `push` and on same-repo pull
+  requests, where GitHub already provides repo-level secrets/variables
+  directly — no extra setup, no approval step.
+- A second `*-fork` job runs only for pull requests opened from a fork. It
+  uses the `pull_request_target` event (the only way to get secrets into a
+  fork-originated run) and targets a dedicated `gemini-ci-fork`
+  **Environment** instead of the repo-level secret/variable.
+
+`pull_request_target` runs with the base repository's trust level for *any*
+fork, on first contact, with no approval gate by default — checking out and
+running a fork's own code in that context (needed here, since that's the
+code under test) would hand the real key to unreviewed code, which could
+exfiltrate it (e.g. a network call from within the test suite). GitHub's
+automatic log secret-masking does **not** protect against this: it only
+scrubs literal matches from log text, so it neither catches an outbound
+network request nor a trivially obfuscated `print` (base64, reversed,
+char-split, ...).
+
+To close that gap, the `*-fork` jobs target the `gemini-ci-fork`
+Environment, which must be configured once per repository with:
+
+1. **Settings → Environments → New environment**, named `gemini-ci-fork`.
+2. **Required reviewers** enabled on it, with at least one maintainer added
+   — this pauses the job right before the environment's secret/variable are
+   resolved, so a human explicitly reviews the diff and approves each fork
+   PR run before its code gets access to the real key.
+3. An environment secret `GEMINI_API_KEY` and environment variable
+   `GEMINI_MODEL`, scoped to `gemini-ci-fork` only. Use a **separate,
+   low-quota, CI-only Gemini key** here (not the one used for `push`/
+   same-repo runs or for `generate-agents-md.yml`), with usage/billing
+   alerts, and rotate it periodically — a reviewer approving a run is a
+   strong mitigation, not a guarantee, against a well-hidden malicious diff.
+
 ## Design notes
 
 The tool builds **several scoped `AGENTS.md` files from the start** rather
@@ -157,6 +215,16 @@ appear once (deduplicated) in each of those directories' files rather than
 being consolidated into one parent/root file — cross-folder consolidation is
 a possible future enhancement, not part of this tool.
 
+**A note on merging into existing files:** when a Gemini key is used and a
+directory's `AGENTS.md` already exists, the LLM is given the whole file as
+context and can propose an edit to *any* matching rule in it, including
+hand-written prose outside the `<!-- BEGIN/END CODERABBIT LEARNINGS -->`
+block. Each proposed edit is only applied if its exact quoted snippet is
+found once, unambiguously, in the current file — a paraphrased or missing
+snippet is skipped (logged, not applied) rather than guessed at — but as
+with any LLM-assisted rewrite of freeform text, it's worth reviewing the
+diff on the first run against a heavily hand-curated `AGENTS.md`.
+
 ## Repository layout
 
 ```
@@ -165,14 +233,21 @@ a possible future enhancement, not part of this tool.
 src/learnings2agents/
   cli.py           # argparse entrypoint, orchestrates the pipeline
   config.py         # defaults: model name, similarity threshold, cache dir
-  models.py         # Learning / DirGroup / SynthesizedBullet dataclasses
+  models.py         # Learning / DirGroup / SynthesizedBullet / TextEdit / MergePlan
   csv_loader.py      # parse the CSV, filter/auto-detect repository
   tree.py            # group learnings by directory, verify against target
-  llm.py             # Gemini client wrapper (google-genai), used only with a key
+  llm.py             # Gemini client wrapper (google-genai): fresh-file synthesis
+                       # (synthesize_directory) and existing-file merge planning
+                       # (plan_agents_md_merge), used only with a key
   heuristics.py       # offline fallback: difflib-based near-duplicate clustering
-  synthesize.py        # per-directory synthesis orchestration + cache lookup
-  writer.py            # render Markdown, merge into existing AGENTS.md files
-  cache.py             # on-disk content-hash cache for synthesis results
+  synthesize.py        # per-directory synthesis orchestration + cache lookup;
+                        # routes to the merge-plan path when a directory's
+                        # AGENTS.md already exists (LLM mode only)
+  writer.py            # render Markdown, merge into existing AGENTS.md files;
+                        # apply_merge_plan() applies an LLM merge plan's edits +
+                        # new bullets onto an existing file's full content
+  cache.py             # on-disk content-hash cache for synthesis results and
+                        # merge plans (the latter also keyed on file content)
 tests/
   fixtures/sample_learnings.csv
   test_security.py     # regression tests: API key is never printed/logged

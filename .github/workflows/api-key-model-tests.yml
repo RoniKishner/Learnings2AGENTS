@@ -2,19 +2,44 @@ name: api-key-and-model-tests
 # Tests LLM mode with an explicitly pinned model (no chain probe needed).
 # Both GEMINI_API_KEY and GEMINI_MODEL are set.
 #
+# Two code paths, split into separate jobs below:
+#   - push / same-repo pull_request: GitHub already provides repo-level
+#     secrets/variables here, so this runs straight away with no approval.
+#   - pull_request_target (forked PRs only): forks never get repo-level
+#     secrets/variables from GitHub, by design. To still run this job for
+#     fork PRs, it targets the `gemini-ci-fork` Environment instead, which
+#     must have "Required reviewers" configured (Settings > Environments)
+#     so a maintainer explicitly approves each run — after reviewing the
+#     diff — before the fork's code gets access to the real key. Without
+#     that reviewer gate, `pull_request_target` would hand the real key to
+#     unreviewed fork code, which could exfiltrate it (e.g. a network call
+#     from the test suite); GitHub's log secret-masking does not protect
+#     against that, only against accidentally printing it.
+#
 # Required repository secret:  secrets.GEMINI_API_KEY
 # Required repository variable: vars.GEMINI_MODEL
+# Required for fork PRs — Environment `gemini-ci-fork` with:
+#   - Required reviewers protection rule
+#   - environment secret:   GEMINI_API_KEY (use a scoped/low-quota CI key,
+#     not shared with anything else)
+#   - environment variable: GEMINI_MODEL
 
 on:
   push:
     branches: ["main"]
   pull_request:
     branches: ["main"]
+  pull_request_target:
+    branches: ["main"]
+
+permissions:
+  contents: read
 
 jobs:
   api-key-and-model-tests:
     name: api-key-and-model-tests
-    if: ${{ !github.event.repository.fork }}
+    # push and same-repo PRs: trusted context, secrets already available.
+    if: ${{ github.event_name != 'pull_request_target' }}
     runs-on: ubuntu-latest
     env:
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -33,6 +58,46 @@ jobs:
           fi
 
       - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: make install
+
+      - name: Run tests
+        run: make test
+
+  api-key-and-model-tests-fork:
+    name: api-key-and-model-tests (fork PR)
+    # Fork PRs only; gated behind the gemini-ci-fork Environment's required
+    # reviewers so a maintainer approves before the real key is resolved.
+    if: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository }}
+    runs-on: ubuntu-latest
+    environment: gemini-ci-fork
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GEMINI_MODEL:   ${{ vars.GEMINI_MODEL }}
+
+    steps:
+      - name: Validate environment
+        run: |
+          if [ -z "$GEMINI_API_KEY" ]; then
+            echo "::error::secrets.GEMINI_API_KEY is not set on the gemini-ci-fork environment." >&2
+            exit 1
+          fi
+          if [ -z "$GEMINI_MODEL" ]; then
+            echo "::error::vars.GEMINI_MODEL is not set on the gemini-ci-fork environment." >&2
+            exit 1
+          fi
+
+      # Only reached after a maintainer approves the gemini-ci-fork
+      # environment's required reviewer check for this run.
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
 
       - uses: actions/setup-python@v6
         with:

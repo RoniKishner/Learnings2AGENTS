@@ -3,18 +3,39 @@ name: model-only-tests
 # it must fall back gracefully to heuristic mode (no crash, no LLM calls).
 # Only GEMINI_MODEL is set; GEMINI_API_KEY is intentionally left empty.
 #
+# Two code paths, split into separate jobs below:
+#   - push / same-repo pull_request: GitHub already provides repo-level
+#     variables here, so this runs straight away with no approval.
+#   - pull_request_target (forked PRs only): forks never get repo-level
+#     variables from GitHub, by design. To still run this job for fork PRs,
+#     it targets the `gemini-ci-fork` Environment instead, which must have
+#     "Required reviewers" configured (Settings > Environments) so a
+#     maintainer explicitly approves each run before it executes. (This job
+#     never has an API key regardless of trigger, so there's no secret to
+#     leak here — the reviewer gate is kept anyway for consistency with the
+#     other two fork jobs and because it still runs arbitrary fork code.)
+#
 # Required repository variable: vars.GEMINI_MODEL
+# Required for fork PRs — Environment `gemini-ci-fork` with:
+#   - Required reviewers protection rule
+#   - environment variable: GEMINI_MODEL
 
 on:
   push:
     branches: ["main"]
   pull_request:
     branches: ["main"]
+  pull_request_target:
+    branches: ["main"]
+
+permissions:
+  contents: read
 
 jobs:
   model-only-tests:
     name: model-only-tests
-    if: ${{ !github.event.repository.fork }}
+    # push and same-repo PRs: trusted context, variables already available.
+    if: ${{ github.event_name != 'pull_request_target' }}
     runs-on: ubuntu-latest
     env:
       GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
@@ -30,6 +51,43 @@ jobs:
           fi
 
       - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: make install
+
+      - name: Run tests
+        run: make test
+
+  model-only-tests-fork:
+    name: model-only-tests (fork PR)
+    # Fork PRs only; gated behind the gemini-ci-fork Environment's required
+    # reviewers so a maintainer approves before this runs against fork code.
+    if: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository }}
+    runs-on: ubuntu-latest
+    environment: gemini-ci-fork
+    env:
+      GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+      # Intentionally empty: tests should run in heuristic mode without an API key.
+      GEMINI_API_KEY: ""
+
+    steps:
+      - name: Validate environment
+        run: |
+          if [ -z "$GEMINI_MODEL" ]; then
+            echo "::error::vars.GEMINI_MODEL is not set on the gemini-ci-fork environment." >&2
+            exit 1
+          fi
+
+      # Only reached after a maintainer approves the gemini-ci-fork
+      # environment's required reviewer check for this run.
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
 
       - uses: actions/setup-python@v6
         with:
