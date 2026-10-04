@@ -167,15 +167,18 @@ for scripting, but prefer the environment variable). Concretely:
 `GEMINI_API_KEY`/`GEMINI_MODEL` to run, but GitHub never passes repository
 secrets or variables to a `pull_request`-triggered run whose head branch is
 a fork — regardless of any repo setting. Each of these workflows therefore
-has two jobs:
+uses a single job triggered only by `push` and `pull_request_target`
+(`pull_request_target` covers *all* pull requests, fork or not, so there's
+no separate `pull_request` trigger and the workflow doesn't fire twice per
+PR update). The job's `environment:` is computed by an expression:
 
-- The original job (unchanged) runs on `push` and on same-repo pull
-  requests, where GitHub already provides repo-level secrets/variables
-  directly — no extra setup, no approval step.
-- A second `*-fork` job runs only for pull requests opened from a fork. It
-  uses the `pull_request_target` event (the only way to get secrets into a
-  fork-originated run) and targets a dedicated `gemini-ci-fork`
-  **Environment** instead of the repo-level secret/variable.
+- For `push` and same-repo pull requests, it evaluates to an empty string —
+  GitHub treats that as "no environment", so secrets/variables resolve
+  straight from the repo-level ones, no approval step, same as before.
+- For a `pull_request_target` run whose head repo is an actual fork, it
+  evaluates to `gemini-ci-fork` instead — a dedicated **Environment** that
+  gates the job behind a required reviewer before its secret/variable are
+  resolved.
 
 `pull_request_target` runs with the base repository's trust level for *any*
 fork, on first contact, with no approval gate by default — checking out and
@@ -185,10 +188,13 @@ exfiltrate it (e.g. a network call from within the test suite). GitHub's
 automatic log secret-masking does **not** protect against this: it only
 scrubs literal matches from log text, so it neither catches an outbound
 network request nor a trivially obfuscated `print` (base64, reversed,
-char-split, ...).
+char-split, ...). It also always uses the workflow file from the base
+branch (not the PR's) and defaults to checking out the base branch too —
+each workflow sets `ref:` explicitly on the checkout step so it actually
+tests the PR's code once approved.
 
-To close that gap, the `*-fork` jobs target the `gemini-ci-fork`
-Environment, which must be configured once per repository with:
+To close the secrets gap for fork PRs, configure the `gemini-ci-fork`
+Environment once per repository with:
 
 1. **Settings → Environments → New environment**, named `gemini-ci-fork`.
 2. **Required reviewers** enabled on it, with at least one maintainer added
