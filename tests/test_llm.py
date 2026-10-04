@@ -33,7 +33,9 @@ class _FakeResponse:
 
 
 class _FakeModels:
-    def __init__(self, response_text: str | None = None, error: Exception | None = None):
+    def __init__(
+        self, response_text: str | None = None, error: Exception | None = None
+    ):
         self.response_text = response_text
         self.error = error
         self.calls: list[dict] = []
@@ -46,7 +48,9 @@ class _FakeModels:
 
 
 class _FakeGenaiClient:
-    def __init__(self, response_text: str | None = None, error: Exception | None = None):
+    def __init__(
+        self, response_text: str | None = None, error: Exception | None = None
+    ):
         self.models = _FakeModels(response_text=response_text, error=error)
 
 
