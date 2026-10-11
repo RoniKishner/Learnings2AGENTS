@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from learnings2agents.config import AGENTS_FILENAME, BEGIN_MARKER, END_MARKER
-from learnings2agents.models import DirGroup, MergePlan, SynthesizedBullet
+from learnings2agents.models import DirGroup, MergePlan, SynthesizedBullet, TextEdit
 
 logger = logging.getLogger(__name__)
 
@@ -54,9 +54,23 @@ def render_bullets(bullets: list[SynthesizedBullet]) -> str:
     return "\n".join(lines).rstrip("\n")
 
 
-def render_section(bullets: list[SynthesizedBullet]) -> str:
-    """Render the full marker-wrapped generated section for one directory."""
+def render_section(
+    bullets: list[SynthesizedBullet], include_markers: bool = True
+) -> str:
+    """Render the full generated section for one directory.
+
+    By default this is wrapped in the `<!-- BEGIN/END CODERABBIT LEARNINGS -->`
+    markers so a future run can find and replace just this section while
+    preserving hand-written content around it. Pass `include_markers=False`
+    to omit them instead — used when the target repository had **no**
+    `AGENTS.md` files at all before this run: there's no previous
+    machine-generated section to re-find yet, so the markers would just be
+    unnecessary noise in a brand-new file (see `cli.py`'s
+    `target_has_any_agents_md` check).
+    """
     body = render_bullets(bullets)
+    if not include_markers:
+        return f"{_SECTION_TITLE}\n\n{body}"
     return f"{BEGIN_MARKER}\n{_SECTION_TITLE}\n\n{body}\n{END_MARKER}"
 
 
@@ -134,23 +148,22 @@ def parse_generated_bullets(content: str) -> list[SynthesizedBullet]:
     return bullets
 
 
-def apply_merge_plan(existing_content: str, plan: MergePlan) -> str:
-    """Apply an LLM-proposed `MergePlan` to `existing_content`.
+def apply_edits(content: str, edits: list[TextEdit]) -> str:
+    """Apply a list of `TextEdit`s to `content` as exact string replacements.
 
-    First applies `plan.edits` as exact string replacements anywhere in the
-    file (matched rules, whether hand-written or previously generated, are
-    rewritten in place). An edit whose `old_text` isn't found exactly once in
+    Matched rules, whether hand-written or previously generated, are
+    rewritten in place. An edit whose `old_text` isn't found exactly once in
     the current content (not found at all, or ambiguous/multiple matches) is
     skipped with a warning rather than applied incorrectly — this keeps a
     single bad match from corrupting the file or failing the whole directory.
 
-    Then appends `plan.new_bullets` into the marker block, first folding in
-    whatever bullets are *already* in that block (via `parse_generated_bullets`)
-    so previously-accumulated bullets are never dropped, only added to.
+    Split out from `apply_merge_plan` so callers (e.g. `synthesize.py`'s
+    redundancy check) can compute "the file as it will look after edits,
+    before new bullets are appended" without duplicating this loop.
     """
-    content = existing_content
-    for edit in plan.edits:
-        count = content.count(edit.old_text)
+    result = content
+    for edit in edits:
+        count = result.count(edit.old_text)
         if count != 1:
             logger.warning(
                 "Skipping merge edit: old_text matched %d time(s) (expected "
@@ -159,7 +172,19 @@ def apply_merge_plan(existing_content: str, plan: MergePlan) -> str:
                 edit.old_text[:120],
             )
             continue
-        content = content.replace(edit.old_text, edit.new_text, 1)
+        result = result.replace(edit.old_text, edit.new_text, 1)
+    return result
+
+
+def apply_merge_plan(existing_content: str, plan: MergePlan) -> str:
+    """Apply an LLM-proposed `MergePlan` to `existing_content`.
+
+    First applies `plan.edits` (see `apply_edits`). Then appends
+    `plan.new_bullets` into the marker block, first folding in whatever
+    bullets are *already* in that block (via `parse_generated_bullets`) so
+    previously-accumulated bullets are never dropped, only added to.
+    """
+    content = apply_edits(existing_content, plan.edits)
 
     if plan.new_bullets:
         combined = parse_generated_bullets(content) + plan.new_bullets
@@ -177,13 +202,30 @@ class WriteResult:
 def write_agents_md(
     target_dir: Path, group: DirGroup, dry_run: bool = False
 ) -> WriteResult:
-    """Write/merge the AGENTS.md file for one directory's synthesized bullets."""
+    """Write/merge the AGENTS.md file for one directory's synthesized bullets.
+
+    Whether the generated section includes the
+    `<!-- BEGIN/END CODERABBIT LEARNINGS -->` markers is decided per file,
+    based on whether *that specific directory's* `AGENTS.md` already exists:
+    - **Creating** a brand-new file (nothing there yet) omits the markers —
+      there's no previous machine-generated block to preserve/re-find yet,
+      so they'd just be noise in a file that's 100% generated content.
+    - **Updating** an already-existing file (found at least one file there)
+      includes them as before, so a *future* run can find and replace just
+      the generated section while preserving everything else untouched.
+    This is independent of whether other directories in the same run (or
+    repository) already have an `AGENTS.md` or not.
+    """
     agents_path = target_dir / AGENTS_FILENAME
 
     if group.merged_content is not None:
         # Final content already computed by the LLM merge-plan path (see
         # synthesize.py + apply_merge_plan) — write it verbatim instead of
         # rendering `group.bullets` (which is left empty for this path).
+        # This path is only ever taken for a directory whose AGENTS.md
+        # already existed (that's the whole premise of a "merge plan"), so
+        # it always includes markers (via apply_merge_plan/render_section's
+        # default) — consistent with the "updating" case above.
         if dry_run:
             return WriteResult(path=agents_path, action="dry-run-merged")
         target_dir.mkdir(parents=True, exist_ok=True)
@@ -194,9 +236,10 @@ def write_agents_md(
     if not group.bullets:
         return WriteResult(path=agents_path, action="skipped-empty")
 
-    generated_section = render_section(group.bullets)
+    file_exists = agents_path.is_file()
+    generated_section = render_section(group.bullets, include_markers=file_exists)
 
-    if agents_path.is_file():
+    if file_exists:
         existing_content = agents_path.read_text(encoding="utf-8")
         new_content = merge_into_existing(existing_content, generated_section)
         action = "updated"
