@@ -77,9 +77,9 @@ python -m learnings2agents.cli --help
    list — either via the Gemini API (if a key is given) or a fully offline
    heuristic (near-duplicate text clustering via `difflib`).
 5. Writes/merges an `AGENTS.md` per directory. **Creating** a directory's
-   file from scratch (it didn't exist before this run) writes plain
-   generated content with no extra markers — it's 100% generated, so
-   there's nothing to distinguish yet. **Updating** an already-existing
+   file from scratch (it didn't exist before this run) writes only the
+   synthesized bullet list — no boilerplate header, markers, or section
+   title. **Updating** an already-existing
    file wraps the new content in `<!-- BEGIN/END CODERABBIT LEARNINGS -->`
    markers instead, so any hand-written content in that file is preserved
    and a *future* run can find/replace just the generated section. This is

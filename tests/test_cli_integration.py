@@ -46,13 +46,13 @@ def test_cli_end_to_end_heuristic_mode_writes_expected_agents_md(tmp_path):
     content = (target / "utilities" / "unittests" / "AGENTS.md").read_text(
         encoding="utf-8"
     )
-    # This directory had no AGENTS.md before this run, so the file is
-    # created from scratch and the generated section omits the CODERABBIT
-    # LEARNINGS markers — there's no previous machine-generated block that
-    # a future run would need to re-find yet (see `writer.write_agents_md`).
+    # Brand-new file: bullets only — no markers, section title, or intro
+    # (see `writer.write_agents_md`).
     assert "<!-- BEGIN CODERABBIT LEARNINGS -->" not in content
     assert "<!-- END CODERABBIT LEARNINGS -->" not in content
-    assert "## Learnings from CodeRabbit" in content
+    assert "## Learnings from CodeRabbit" not in content
+    assert "CodeRabbit" not in content
+    assert content.startswith("- ")
 
 
 def test_cli_markers_are_decided_per_directory_not_for_the_whole_repo(tmp_path):

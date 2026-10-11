@@ -15,10 +15,6 @@ from learnings2agents.models import DirGroup, MergePlan, SynthesizedBullet, Text
 logger = logging.getLogger(__name__)
 
 _SECTION_TITLE = "## Learnings from CodeRabbit"
-_NEW_FILE_INTRO = (
-    "# AGENTS.md\n\n"
-    "Guidance derived from CodeRabbit review history for this directory.\n\n"
-)
 
 
 def _format_prs(pull_requests: list[str]) -> str:
@@ -207,9 +203,9 @@ def write_agents_md(
     Whether the generated section includes the
     `<!-- BEGIN/END CODERABBIT LEARNINGS -->` markers is decided per file,
     based on whether *that specific directory's* `AGENTS.md` already exists:
-    - **Creating** a brand-new file (nothing there yet) omits the markers —
-      there's no previous machine-generated block to preserve/re-find yet,
-      so they'd just be noise in a file that's 100% generated content.
+    - **Creating** a brand-new file (nothing there yet) writes only the
+      synthesized bullets — no markers, no section title, no boilerplate
+      header (there's no previous machine-generated block to re-find yet).
     - **Updating** an already-existing file (found at least one file there)
       includes them as before, so a *future* run can find and replace just
       the generated section while preserving everything else untouched.
@@ -237,14 +233,14 @@ def write_agents_md(
         return WriteResult(path=agents_path, action="skipped-empty")
 
     file_exists = agents_path.is_file()
-    generated_section = render_section(group.bullets, include_markers=file_exists)
 
     if file_exists:
+        generated_section = render_section(group.bullets, include_markers=True)
         existing_content = agents_path.read_text(encoding="utf-8")
         new_content = merge_into_existing(existing_content, generated_section)
         action = "updated"
     else:
-        new_content = _NEW_FILE_INTRO + generated_section + "\n"
+        new_content = render_bullets(group.bullets) + "\n"
         action = "created"
 
     if dry_run:
